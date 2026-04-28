@@ -1,0 +1,23 @@
+# Vagrant
+.vagrant/
+
+# VirtualBox disk-filer
+*.vdi
+*.vmdk
+
+# Ansible temporära filer
+*.retry
+
+# Känsliga filer
+*.pem
+*.key
+secrets.yml
+vault_pass.txt
+
+# OS-specifikt
+.DS_Store
+Thumbs.db
+
+# Editor
+.vscode/
+.idea/
