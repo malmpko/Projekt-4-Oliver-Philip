@@ -99,13 +99,17 @@
         state: started
         enabled: true
 
-    - name: Kör quotacheck
-      command: quotacheck -cumg /shares
+    - name: Stäng av befintlig quota före kontroll
+      shell: quotaoff -ug /shares || true
+      changed_when: false
+
+    - name: Kör quotacheck för användare och grupper
+      command: quotacheck -cugm /shares
       failed_when: false
       changed_when: false
 
-    - name: Aktivera quota
-      command: quotaon /shares
+    - name: Aktivera användar- och gruppkvoter
+      command: quotaon -ug /shares
       failed_when: false
       changed_when: false
 
