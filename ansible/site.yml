@@ -124,6 +124,7 @@
     - name: Kontrollera quota-status
       command: quotaon -p /shares
       changed_when: false
+      failed_when: false
 
   handlers:
     - name: Ladda om NFS exports

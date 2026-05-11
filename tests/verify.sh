@@ -1,6 +1,11 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+echo "Rensar gamla testfiler..."
+sudo rm -f /mnt/gemensam/anna.txt /mnt/gemensam/bert.txt /mnt/gemensam/clara.txt 2>/dev/null  true
+sudo rm -f /mnt/avdelning-a/anna.txt /mnt/avdelning-a/bert-fel.txt /mnt/avdelning-a/clara.txt 2>/dev/null  true
+sudo rm -f /mnt/avdelning-b/bert.txt /mnt/avdelning-b/anna-fel.txt /mnt/avdelning-b/clara.txt 2>/dev/null || true
+
 echo "Testar gemensam katalog..."
 sudo -u anna bash -lc 'echo "anna gemensam" > /mnt/gemensam/anna.txt'
 sudo -u bert bash -lc 'echo "bert gemensam" > /mnt/gemensam/bert.txt'
