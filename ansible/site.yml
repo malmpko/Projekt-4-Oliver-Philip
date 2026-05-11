@@ -37,12 +37,18 @@
     - group_vars/all.yml
 
   tasks:
-    - name: Installera NFS-server och quota
+    - name: Installera NFS-server, quota och kernelmoduler
       apt:
         name:
           - nfs-kernel-server
           - quota
+          - "linux-modules-extra-{{ ansible_kernel }}"
         state: present
+        update_cache: true
+
+    - name: Ladda quota kernel-moduler
+      shell: modprobe quota_v1 || true; modprobe quota_v2 || true
+      changed_when: false
 
     - name: Skapa dedikerat tjänstkonto för NFS
       user:
@@ -105,17 +111,19 @@
 
     - name: Kör quotacheck för användare och grupper
       command: quotacheck -cugm /shares
-      failed_when: false
       changed_when: false
 
     - name: Aktivera användar- och gruppkvoter
-      command: quotaon -ug /shares
-      failed_when: false
+      command: quotaon -vug /shares
       changed_when: false
 
     - name: Sätt gruppkvoter
       command: "setquota -g {{ item.group }} {{ item.soft }} {{ item.hard }} 0 0 /shares"
       loop: "{{ quotas }}"
+
+    - name: Kontrollera quota-status
+      command: quotaon -p /shares
+      changed_when: false
 
   handlers:
     - name: Ladda om NFS exports
@@ -133,6 +141,7 @@
       apt:
         name: nfs-common
         state: present
+        update_cache: true
 
     - name: Skapa monteringspunkter
       file:
