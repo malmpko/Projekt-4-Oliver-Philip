@@ -1,16 +1,21 @@
 ---
+# ============================================================
+# DEL 1 — Körs på alla maskiner (server + client-a + client-b)
+# ============================================================
 - name: Skapa användare och grupper på alla maskiner
   hosts: all
   become: true
   vars_files:
-    - group_vars/all.yml
+    - group_vars/all.yml  # Hämtar användare, grupper och delningar härifrån
 
   tasks:
+    # Håller paketlistan uppdaterad, men inte oftare än en gång per timme
     - name: Uppdatera apt-cache
       apt:
         update_cache: true
         cache_valid_time: 3600
 
+    # GID måste vara identiska på alla maskiner — annars tolkar NFS-servern fel grupp
     - name: Skapa grupper
       group:
         name: "{{ item.name }}"
@@ -18,6 +23,8 @@
         state: present
       loop: "{{ groups_to_create }}"
 
+    # UID måste vara identiska på alla maskiner — av samma anledning som GID
+    # append: true = befintliga grupper tas inte bort vid uppdatering
     - name: Skapa användare
       user:
         name: "{{ item.name }}"
@@ -30,6 +37,9 @@
       loop: "{{ users_to_create }}"
 
 
+# ============================================================
+# DEL 2 — Körs bara på servern (192.168.56.10)
+# ============================================================
 - name: Konfigurera NFS-server
   hosts: nfs_server
   become: true
@@ -37,19 +47,22 @@
     - group_vars/all.yml
 
   tasks:
+    # Installerar NFS-servern och quota-verktyg
     - name: Installera NFS-server, quota och kernelmoduler
       apt:
         name:
           - nfs-kernel-server
           - quota
-          - "linux-modules-extra-{{ ansible_kernel }}"
+          - "linux-modules-extra-{{ ansible_kernel }}"  # Kernelversion hämtas automatiskt
         state: present
         update_cache: true
 
+    # Laddar kvotmoduler i kärnan — || true gör att steget inte misslyckas om de redan är laddade
     - name: Ladda quota kernel-moduler
       shell: modprobe quota_v1 || true; modprobe quota_v2 || true
       changed_when: false
 
+    # Dedikerat tjänstkonto för NFS — kan inte logga in, används bara av tjänsten
     - name: Skapa dedikerat tjänstkonto för NFS
       user:
         name: svc_nfs
@@ -58,21 +71,26 @@
         create_home: false
         state: present
 
+    # Skapar en 1GB fil som används som eget filsystem för /shares
+    # creates: = körs inte igen om filen redan finns
     - name: Skapa fil som används som separat quota-filsystem
       command: fallocate -l 1G /srv/nfs-quota.img
       args:
         creates: /srv/nfs-quota.img
 
+    # Kontrollerar om filen redan är formaterad — sparar resultatet för nästa steg
     - name: Kontrollera om quota-filsystemet redan är formaterat
       command: blkid /srv/nfs-quota.img
       register: blkid_result
       failed_when: false
       changed_when: false
 
+    # Formaterar bara om filen INTE redan är formaterad — annars raderas all data
     - name: Formatera quota-filsystemet om det inte redan är formaterat
       command: mkfs.ext4 -F /srv/nfs-quota.img
       when: blkid_result.rc != 0
 
+    # Monterar /shares med kvotstöd aktiverat (usrquota + grpquota)
     - name: Montera /shares med quota-stöd
       mount:
         path: /shares
@@ -81,6 +99,8 @@
         opts: loop,usrquota,grpquota
         state: mounted
 
+    # Skapar katalogerna och sätter behörigheter — mode och group hämtas från group_vars/all.yml
+    # Det är här behörigheterna för avdelning-a och avdelning-b bestäms
     - name: Skapa kataloger för shares
       file:
         path: "{{ item.path }}"
@@ -90,6 +110,8 @@
         mode: "{{ item.mode }}"
       loop: "{{ shares }}"
 
+    # Skriver /etc/exports automatiskt baserat på listan av delningar
+    # notify = kör handler "Ladda om NFS exports" om filen ändras
     - name: Konfigurera NFS exports
       copy:
         dest: /etc/exports
@@ -99,38 +121,48 @@
           {% endfor %}
       notify: Ladda om NFS exports
 
+    # Säkerställer att NFS-tjänsten startar automatiskt vid omstart
     - name: Starta och aktivera NFS-server
       service:
         name: nfs-kernel-server
         state: started
         enabled: true
 
+    # Stänger av kvoter tillfälligt innan quotacheck körs
     - name: Stäng av befintlig quota före kontroll
       shell: quotaoff -ug /shares || true
       changed_when: false
 
+    # Skapar kvotdatabasen (aquota.user och aquota.group)
     - name: Kör quotacheck för användare och grupper
       command: quotacheck -cugm /shares
       changed_when: false
 
+    # Aktiverar kvoterna på /shares
     - name: Aktivera användar- och gruppkvoter
       command: quotaon -vug /shares
       changed_when: false
 
+    # Sätter soft och hard limit per grupp — värden hämtas från group_vars/all.yml
     - name: Sätt gruppkvoter
       command: "setquota -g {{ item.group }} {{ item.soft }} {{ item.hard }} 0 0 /shares"
       loop: "{{ quotas }}"
 
+    # Verifierar att kvoter är aktiva efter konfiguration
     - name: Kontrollera quota-status
       command: quotaon -p /shares
       changed_when: false
       failed_when: false
 
   handlers:
+    # Körs automatiskt när /etc/exports ändras — laddar om NFS utan att starta om tjänsten
     - name: Ladda om NFS exports
       command: exportfs -ra
 
 
+# ============================================================
+# DEL 3 — Körs bara på klienterna (client-a och client-b)
+# ============================================================
 - name: Konfigurera NFS-klienter
   hosts: clients
   become: true
@@ -138,18 +170,22 @@
     - group_vars/all.yml
 
   tasks:
+    # Installerar NFS-klientpaketet
     - name: Installera NFS-klient
       apt:
         name: nfs-common
         state: present
         update_cache: true
 
+    # Skapar monteringspunkterna /mnt/gemensam, /mnt/avdelning-a, /mnt/avdelning-b
     - name: Skapa monteringspunkter
       file:
         path: "/mnt/{{ item.name }}"
         state: directory
       loop: "{{ shares }}"
 
+    # Monterar NFS-delningarna och lägger till i fstab för automount vid uppstart
+    # _netdev = vänta på nätverket innan montering sker vid boot
     - name: Montera NFS-shares automatiskt
       mount:
         path: "/mnt/{{ item.name }}"

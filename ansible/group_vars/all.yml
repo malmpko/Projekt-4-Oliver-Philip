@@ -1,6 +1,10 @@
+# IP-adress till NFS-servern — används när klienterna monterar delningarna
 nfs_server_ip: "192.168.56.10"
+
+# Vilket nätverk som får ansluta till NFS-servern
 nfs_network: "192.168.56.0/24"
 
+# Grupper som skapas på alla maskiner — GID måste vara identiska överallt för att NFS-behörigheter ska fungera
 groups_to_create:
   - name: alla
     gid: 2000
@@ -9,33 +13,36 @@ groups_to_create:
   - name: avd_b
     gid: 2002
 
+# Användare som skapas på alla maskiner — UID måste vara identiska överallt
 users_to_create:
   - name: anna
     uid: 3001
-    groups: "alla,avd_a"
+    groups: "alla,avd_a"   # kan skriva till avdelning-a och gemensam
   - name: bert
     uid: 3002
-    groups: "alla,avd_b"
+    groups: "alla,avd_b"   # kan skriva till avdelning-b och gemensam
   - name: clara
     uid: 3003
-    groups: "alla,avd_a,avd_b"
+    groups: "alla,avd_a,avd_b"  # kan skriva till alla delningar
 
+# Delningar på servern — group och mode bestämmer vem som får skriva vart
 shares:
   - name: gemensam
     path: /shares/gemensam
     group: alla
-    mode: "2775"
+    mode: "2775"  # alla i gruppen kan läsa och skriva
 
   - name: avdelning-a
     path: /shares/avdelning-a
     group: avd_a
-    mode: "2770"
+    mode: "2770"  # endast avd_a får skriva, övriga nekas
 
   - name: avdelning-b
     path: /shares/avdelning-b
     group: avd_b
-    mode: "2770"
+    mode: "2770"  # endast avd_b får skriva, övriga nekas
 
+# Kvoter per grupp — soft = varning vid 20MB, hard = absolut stopp vid 25MB
 quotas:
   - group: avd_a
     soft: 20480
